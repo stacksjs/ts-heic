@@ -48,6 +48,7 @@ export interface SpsInfo {
   log2MaxPcmLumaCodingBlockSize: number
   pcmLoopFilterDisabled: boolean
   strongIntraSmoothingEnabled: boolean
+  numShortTermRefPicSets: number
   /** From the VUI video_signal_type, if present. */
   color: VuiColorInfo | null
 }
@@ -84,7 +85,7 @@ function skipProfileTierLevel(r: BitReader, maxSubLayersMinus1: number): void {
 }
 
 /** Skip one st_ref_pic_set (7.3.7); still images carry none in practice. */
-function skipShortTermRefPicSet(r: BitReader, idx: number, numSets: number, numDeltaPocs: number[]): void {
+export function skipShortTermRefPicSet(r: BitReader, idx: number, numSets: number, numDeltaPocs: number[]): void {
   let interRpsPred = false
   if (idx !== 0)
     interRpsPred = r.readBit() === 1
@@ -272,6 +273,7 @@ export function parseSps(nal: Uint8Array): SpsInfo {
     log2MaxPcmLumaCodingBlockSize,
     pcmLoopFilterDisabled,
     strongIntraSmoothingEnabled,
+    numShortTermRefPicSets,
     color,
   }
 }

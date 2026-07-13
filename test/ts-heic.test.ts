@@ -119,6 +119,38 @@ describe('parameter sets', () => {
   })
 })
 
+describe('slice segment header', () => {
+  const { parsePps } = require('../src/hevc/pps') as typeof import('../src/hevc/pps')
+  const { parseSliceHeader } = require('../src/hevc/slice-header') as typeof import('../src/hevc/slice-header')
+  const { getItemPayload } = require('../src/container/heic') as typeof import('../src/container/heic')
+
+  it('parses tile slice headers and splits WPP substreams per CTU row', () => {
+    for (const buffer of [small, grid]) {
+      const meta = getHeicMetadata(buffer)
+      const boxes = parseISOBMFF(buffer)
+      const pps = parsePps(meta.hvcC!.pps[0])
+      const tileId = meta.grid ? meta.grid.tileItemIds[0] : meta.primaryItemId
+      const payload = getItemPayload(buffer, boxes, tileId)!
+      const nals = splitLengthPrefixed(payload, meta.hvcC!.nalLengthSize)
+      const slice = nals.find(n => isSliceNal(n.type))!
+      const sh = parseSliceHeader(slice.data, meta.sps!, pps)
+
+      expect(sh.firstSliceInPic).toBe(true)
+      expect(sh.sliceType).toBe(2) // I slice
+      expect(sh.sliceQpY).toBe(16)
+      expect(sh.saoLuma).toBe(true)
+      expect(sh.saoChroma).toBe(true)
+      // WPP: one substream per CTU row.
+      const ctuRows = Math.ceil(meta.sps!.picHeightInLumaSamples / 32)
+      expect(sh.substreams.length).toBe(ctuRows)
+      // Substreams tile the remainder of the NAL (minus header + EPBs).
+      const total = sh.substreams.reduce((s, x) => s + x.length, 0)
+      expect(total).toBeLessThanOrEqual(slice.data.length)
+      expect(total).toBeGreaterThan(slice.data.length - 64 - ctuRows * 3)
+    }
+  })
+})
+
 describe('NAL layer', () => {
   it('splits every tile payload into valid slice NALs', () => {
     const meta = getHeicMetadata(grid)
