@@ -14,27 +14,39 @@ container; only the codec inside differs).
 | Display transforms (`irot`, `imir`) | Done |
 | `hvcC` decoder configuration (VPS/SPS/PPS extraction) | Done |
 | HEVC NAL splitting + RBSP unescaping | Done |
-| HEVC SPS parsing (dimensions, chroma, bit depth) | Done, cross-checked against container |
-| HEVC slice decoding (CABAC, intra prediction, transforms, deblock/SAO) | **In progress** |
+| HEVC SPS/PPS parsing (dimensions, chroma, bit depth, scaling lists, VUI) | Done, cross-checked against container |
+| HEVC slice decoding (CABAC, intra prediction, inverse transforms) | Done, bit-exact vs libde265 |
+| In-loop filters (deblocking, SAO) | Done, bit-exact vs libde265 |
+| YCbCr 4:2:0 to RGBA, grid stitching, conformance-window crop | Done |
 
-`getHeicMetadata()` works today. `decodeHeic()` throws a descriptive error
-until the entropy decoder lands; `test/fixtures/` carries a ground-truth
-image and a PSNR-gated `it.todo` so the decoder can be verified the moment
-it produces pixels.
+`decodeHeic()` fully decodes single-item and tiled iPhone captures to RGBA.
+The intra decode path (entropy, prediction, transforms, and both in-loop
+filters) is verified bit-exact against libde265's reconstruction of real
+capture tiles, and `test/` gates the end-to-end pipeline at PSNR >= 30 dB
+against a ground-truth image (it decodes to ~47 dB).
+
+Scope: HEVC Main-profile intra still images (I-slices, 4:2:0, 8-bit), which
+is what HEIC captures use. Inter prediction, 10/12-bit, and 4:2:2/4:4:4 are
+out of scope.
 
 ## Usage
 
 ```ts
-import { getHeicMetadata, isHeic } from '@stacksjs/ts-heic'
+import { decodeHeic, getHeicMetadata, isHeic } from '@stacksjs/ts-heic'
 
 const buffer = new Uint8Array(await Bun.file('photo.heic').arrayBuffer())
 
 if (isHeic(buffer)) {
+  // Metadata only (no pixel decode):
   const meta = getHeicMetadata(buffer)
   console.log(meta.width, meta.height) // display dimensions
   console.log(meta.grid?.tileItemIds.length) // e.g. 48 tiles on an iPhone capture
   console.log(meta.rotation, meta.mirror) // irot / imir display transforms
-  console.log(meta.sps?.bitDepthLuma) // parsed straight from the HEVC SPS
+
+  // Full decode to RGBA (irot/imir applied by default):
+  const image = decodeHeic(buffer)
+  console.log(image.width, image.height) // display dimensions
+  console.log(image.data.length) // width * height * 4 (RGBA8888)
 }
 ```
 
@@ -44,8 +56,11 @@ if (isHeic(buffer)) {
 bun test
 ```
 
-Fixtures are real iPhone captures (single-item and 48-tile grid) with
-out-of-band verified dimensions.
+Fixtures are real iPhone captures (a 2048x1536 8-tile capture and a
+3024x4032 48-tile grid). Correctness is pinned two ways: golden SHA-256
+hashes of a decoded tile's planes (matching libde265's output before and
+after loop filtering), and a PSNR check of the full pipeline against a
+ground-truth image.
 
 ## License
 
