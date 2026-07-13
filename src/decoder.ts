@@ -147,15 +147,15 @@ function cropPlanes(planes: Planes, x0: number, y0: number, width: number, heigh
   if (x0 === 0 && y0 === 0 && width === planes.width && height === planes.height)
     return planes
   const y = new Uint8Array(width * height)
-  const cw = width >> 1
-  const ch = height >> 1
+  const cw = Math.ceil(width / 2)
+  const ch = Math.ceil(height / 2)
   const cb = new Uint8Array(cw * ch)
   const cr = new Uint8Array(cw * ch)
   for (let row = 0; row < height; row++) {
     const src = (y0 + row) * planes.width + x0
     y.set(planes.y.subarray(src, src + width), row * width)
   }
-  const srcCw = planes.width >> 1
+  const srcCw = Math.ceil(planes.width / 2)
   for (let row = 0; row < ch; row++) {
     const src = ((y0 >> 1) + row) * srcCw + (x0 >> 1)
     cb.set(planes.cb.subarray(src, src + cw), row * cw)

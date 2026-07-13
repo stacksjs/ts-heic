@@ -10,6 +10,16 @@ export interface ColorOptions {
   fullRange?: boolean
 }
 
+function imagePixelCount(width: number, height: number): number {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0)
+    throw new RangeError('ts-heic: image dimensions must be positive integers')
+
+  const pixels = width * height
+  if (!Number.isSafeInteger(pixels))
+    throw new RangeError('ts-heic: image dimensions are too large')
+  return pixels
+}
+
 /**
  * Convert planar YUV420 (chroma at half resolution, nearest-sample upsample)
  * into RGBA8888.
@@ -22,6 +32,12 @@ export function yuv420ToRgba(
   height: number,
   options: ColorOptions = {},
 ): Uint8Array {
+  const pixels = imagePixelCount(width, height)
+  const cw = Math.ceil(width / 2)
+  const ch = Math.ceil(height / 2)
+  if (y.length < pixels || cb.length < cw * ch || cr.length < cw * ch)
+    throw new RangeError('ts-heic: YUV planes are smaller than the requested image dimensions')
+
   const matrix = options.matrixCoeffs ?? 6
   const fullRange = options.fullRange ?? true
 
@@ -38,8 +54,7 @@ export function yuv420ToRgba(
   const cScale = fullRange ? 1 : 255 / 224
   const yOffset = fullRange ? 0 : 16
 
-  const cw = width >> 1
-  const out = new Uint8Array(width * height * 4)
+  const out = new Uint8Array(pixels * 4)
   let o = 0
   for (let py = 0; py < height; py++) {
     const cRow = (py >> 1) * cw
@@ -81,12 +96,20 @@ export function applyOrientation(
   rotation: number,
   mirror: number | null,
 ): OrientedImage {
+  const pixels = imagePixelCount(width, height)
+  if (rgba.length < pixels * 4)
+    throw new RangeError('ts-heic: RGBA buffer is smaller than the requested image dimensions')
+  if (!Number.isInteger(rotation))
+    throw new RangeError('ts-heic: rotation must be an integer number of quarter turns')
+  if (mirror !== null && mirror !== 0 && mirror !== 1)
+    throw new RangeError('ts-heic: mirror must be 0, 1, or null')
+
   let data = rgba
   let w = width
   let h = height
+  const rot = ((rotation % 4) + 4) % 4
 
-  if (rotation % 4 !== 0) {
-    const rot = rotation % 4
+  if (rot !== 0) {
     const dw = rot % 2 === 0 ? w : h
     const dh = rot % 2 === 0 ? h : w
     const out = new Uint8Array(dw * dh * 4)
