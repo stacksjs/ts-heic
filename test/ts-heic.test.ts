@@ -170,13 +170,48 @@ describe('NAL layer', () => {
 })
 
 describe('decodeHeic', () => {
-  it('fails loudly (not silently) until the HEVC core lands', () => {
-    expect(() => decodeHeic(small)).toThrow(/HEVC slice decoding is not implemented/)
-  })
+  it('decodes iphone-small.heic within 30dB PSNR of the ground truth', async () => {
+    const { decode: decodeJpeg } = await import('ts-jpeg')
+    const { applyOrientation } = await import('../src/color')
+    const img = decodeHeic(small)
+    // irot=3 (90 degrees clockwise): 2048x1536 coded -> 1536x2048 displayed.
+    expect(img.width).toBe(1536)
+    expect(img.height).toBe(2048)
 
-  // Ground truth for the future entropy decoder:
-  // test/fixtures/iphone-small.groundtruth.jpg is a q95 JPEG of the correct
-  // decode. Once decodeHeic produces pixels, compare against it with
-  // PSNR >= 30dB (JPEG loss accounts for a few dB).
-  it.todo('decodes iphone-small.heic within 30dB PSNR of the ground truth')
+    // The ground truth JPEG raster is in coded orientation with EXIF
+    // Orientation=6; bring it into display orientation the same way.
+    const jpg = decodeJpeg(readFileSync(join(import.meta.dir, 'fixtures', 'iphone-small.groundtruth.jpg')), { useTArray: true })
+    const ref = applyOrientation(new Uint8Array(jpg.data), jpg.width, jpg.height, 3, null)
+    expect(ref.width).toBe(img.width)
+    expect(ref.height).toBe(img.height)
+
+    let se = 0
+    const n = img.width * img.height
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < 3; c++) {
+        const d = img.data[i * 4 + c] - ref.data[i * 4 + c]
+        se += d * d
+      }
+    }
+    const psnr = 10 * Math.log10((255 * 255) / (se / (n * 3)))
+    expect(psnr).toBeGreaterThanOrEqual(30)
+  }, 30000)
+
+  it('decodes and stitches the tiled grid capture', () => {
+    const img = decodeHeic(grid)
+    expect(img.width).toBe(3024) // no rotation on this capture
+    expect(img.height).toBe(4032)
+    expect(img.data.length).toBe(3024 * 4032 * 4)
+    // Not a blank canvas: real image content has spread-out luma.
+    let min = 255
+    let max = 0
+    for (let i = 0; i < img.data.length; i += 4001 * 4) {
+      const v = img.data[i]
+      if (v < min)
+        min = v
+      if (v > max)
+        max = v
+    }
+    expect(max - min).toBeGreaterThan(64)
+  }, 60000)
 })
