@@ -1,9 +1,19 @@
 /**
- * HEVC sequence parameter set parsing — enough of the SPS to recover the
- * coded picture dimensions, chroma format, and bit depths, cross-checkable
- * against the HEIF container's `ispe` values.
+ * HEVC sequence parameter set parsing — the full SPS as far as the VUI colour
+ * description, cross-checkable against the HEIF container's `ispe` values and
+ * feeding the slice decoder (CTB geometry, transform sizes, scaling lists,
+ * SAO, strong intra smoothing, colour matrix/range).
  */
+import type { ScalingListData } from './scaling'
 import { BitReader, toRbsp } from './nal'
+import { defaultScalingListData, parseScalingListData } from './scaling'
+
+export interface VuiColorInfo {
+  videoFullRange: boolean
+  colourPrimaries: number
+  transferCharacteristics: number
+  matrixCoeffs: number
+}
 
 export interface SpsInfo {
   spsId: number
@@ -11,6 +21,13 @@ export interface SpsInfo {
   /** Final display width/height after the conformance window crop. */
   width: number
   height: number
+  /** Coded picture dimensions (multiples of the min CB size). */
+  picWidthInLumaSamples: number
+  picHeightInLumaSamples: number
+  cropLeft: number
+  cropRight: number
+  cropTop: number
+  cropBottom: number
   bitDepthLuma: number
   bitDepthChroma: number
   log2MaxPicOrderCntLsb: number
@@ -20,10 +37,19 @@ export interface SpsInfo {
   log2MaxTransformBlockSize: number
   maxTransformHierarchyDepthIntra: number
   scalingListEnabled: boolean
+  /** Populated when scaling lists are active (explicit or default). */
+  scalingListData: ScalingListData | null
   ampEnabled: boolean
   sampleAdaptiveOffsetEnabled: boolean
   pcmEnabled: boolean
+  pcmSampleBitDepthLuma: number
+  pcmSampleBitDepthChroma: number
+  log2MinPcmLumaCodingBlockSize: number
+  log2MaxPcmLumaCodingBlockSize: number
+  pcmLoopFilterDisabled: boolean
   strongIntraSmoothingEnabled: boolean
+  /** From the VUI video_signal_type, if present. */
+  color: VuiColorInfo | null
 }
 
 /** Skip the fixed-size profile_tier_level structure. */
@@ -54,6 +80,43 @@ function skipProfileTierLevel(r: BitReader, maxSubLayersMinus1: number): void {
     }
     if (subLayerLevelPresent[i])
       r.readBits(8)
+  }
+}
+
+/** Skip one st_ref_pic_set (7.3.7); still images carry none in practice. */
+function skipShortTermRefPicSet(r: BitReader, idx: number, numSets: number, numDeltaPocs: number[]): void {
+  let interRpsPred = false
+  if (idx !== 0)
+    interRpsPred = r.readBit() === 1
+  if (interRpsPred) {
+    if (idx === numSets)
+      r.ue() // delta_idx_minus1
+    r.readBit() // delta_rps_sign
+    r.ue() // abs_delta_rps_minus1
+    const refDeltaPocs = numDeltaPocs[idx - 1] ?? 0
+    let count = 0
+    for (let j = 0; j <= refDeltaPocs; j++) {
+      const usedByCurrPic = r.readBit() === 1
+      let useDelta = true
+      if (!usedByCurrPic)
+        useDelta = r.readBit() === 1
+      if (usedByCurrPic || useDelta)
+        count++
+    }
+    numDeltaPocs[idx] = count
+  }
+  else {
+    const numNegative = r.ue()
+    const numPositive = r.ue()
+    for (let j = 0; j < numNegative; j++) {
+      r.ue() // delta_poc_s0_minus1
+      r.readBit() // used_by_curr_pic_s0_flag
+    }
+    for (let j = 0; j < numPositive; j++) {
+      r.ue() // delta_poc_s1_minus1
+      r.readBit() // used_by_curr_pic_s1_flag
+    }
+    numDeltaPocs[idx] = numNegative + numPositive
   }
 }
 
@@ -105,56 +168,91 @@ export function parseSps(nal: Uint8Array): SpsInfo {
   const maxTransformHierarchyDepthIntra = r.ue()
 
   const scalingListEnabled = r.readBit() === 1
-  if (scalingListEnabled && r.readBit() === 1) {
-    // sps_scaling_list_data_present: skip scaling_list_data
-    for (let sizeId = 0; sizeId < 4; sizeId++) {
-      for (let matrixId = 0; matrixId < 6; matrixId += (sizeId === 3 ? 3 : 1)) {
-        if (r.readBit() === 0) { // scaling_list_pred_mode_flag
-          r.ue() // scaling_list_pred_matrix_id_delta
-        }
-        else {
-          const coefNum = Math.min(64, 1 << (4 + (sizeId << 1)))
-          if (sizeId > 1)
-            r.se() // scaling_list_dc_coef_minus8
-          for (let i = 0; i < coefNum; i++)
-            r.se() // scaling_list_delta_coef
-        }
-      }
-    }
+  let scalingListData: ScalingListData | null = null
+  if (scalingListEnabled) {
+    scalingListData = r.readBit() === 1 // sps_scaling_list_data_present_flag
+      ? parseScalingListData(r)
+      : defaultScalingListData()
   }
 
   const ampEnabled = r.readBit() === 1
   const sampleAdaptiveOffsetEnabled = r.readBit() === 1
   const pcmEnabled = r.readBit() === 1
+  let pcmSampleBitDepthLuma = 0
+  let pcmSampleBitDepthChroma = 0
+  let log2MinPcmLumaCodingBlockSize = 0
+  let log2MaxPcmLumaCodingBlockSize = 0
+  let pcmLoopFilterDisabled = false
   if (pcmEnabled) {
-    r.readBits(4) // pcm_sample_bit_depth_luma_minus1
-    r.readBits(4) // pcm_sample_bit_depth_chroma_minus1
-    r.ue() // log2_min_pcm_luma_coding_block_size_minus3
-    r.ue() // log2_diff_max_min_pcm_luma_coding_block_size
-    r.readBit() // pcm_loop_filter_disabled_flag
+    pcmSampleBitDepthLuma = r.readBits(4) + 1
+    pcmSampleBitDepthChroma = r.readBits(4) + 1
+    log2MinPcmLumaCodingBlockSize = r.ue() + 3
+    log2MaxPcmLumaCodingBlockSize = log2MinPcmLumaCodingBlockSize + r.ue()
+    pcmLoopFilterDisabled = r.readBit() === 1
   }
 
   const numShortTermRefPicSets = r.ue()
-  // Still images (IDR-only) carry zero short-term ref pic sets; parsing the
-  // general case isn't needed to recover dimensions and is left to the slice
-  // decoder work.
+  const numDeltaPocs: number[] = []
+  for (let i = 0; i < numShortTermRefPicSets; i++)
+    skipShortTermRefPicSet(r, i, numShortTermRefPicSets, numDeltaPocs)
+
+  if (r.readBit() === 1) { // long_term_ref_pics_present_flag
+    const numLongTerm = r.ue()
+    for (let i = 0; i < numLongTerm; i++) {
+      r.readBits(log2MaxPicOrderCntLsb) // lt_ref_pic_poc_lsb_sps
+      r.readBit() // used_by_curr_pic_lt_sps_flag
+    }
+  }
+
+  r.readBit() // sps_temporal_mvp_enabled_flag
+  const strongIntraSmoothingEnabled = r.readBit() === 1
+
+  let color: VuiColorInfo | null = null
+  if (r.readBit() === 1) { // vui_parameters_present_flag
+    if (r.readBit() === 1) { // aspect_ratio_info_present_flag
+      const aspectRatioIdc = r.readBits(8)
+      if (aspectRatioIdc === 255) {
+        r.readBits(16) // sar_width
+        r.readBits(16) // sar_height
+      }
+    }
+    if (r.readBit() === 1) // overscan_info_present_flag
+      r.readBit() // overscan_appropriate_flag
+    if (r.readBit() === 1) { // video_signal_type_present_flag
+      r.readBits(3) // video_format
+      const videoFullRange = r.readBit() === 1
+      let colourPrimaries = 2
+      let transferCharacteristics = 2
+      let matrixCoeffs = 2
+      if (r.readBit() === 1) { // colour_description_present_flag
+        colourPrimaries = r.readBits(8)
+        transferCharacteristics = r.readBits(8)
+        matrixCoeffs = r.readBits(8)
+      }
+      color = { videoFullRange, colourPrimaries, transferCharacteristics, matrixCoeffs }
+    }
+    // Remaining VUI fields (chroma loc, timing, bitstream restrictions) are
+    // irrelevant to still-image decoding and left unread.
+  }
 
   // SubWidthC/SubHeightC per chroma_format_idc (4:2:0 = 2/2, 4:2:2 = 2/1).
   const subW = chromaFormatIdc === 1 || chromaFormatIdc === 2 ? 2 : 1
   const subH = chromaFormatIdc === 1 ? 2 : 1
 
-  void numShortTermRefPicSets
-
   const width = picWidthInLumaSamples - subW * (cropLeft + cropRight)
   const height = picHeightInLumaSamples - subH * (cropTop + cropBottom)
-
-  const strongIntraSmoothingEnabled = false // parsed later in the full decoder
 
   return {
     spsId,
     chromaFormatIdc,
     width,
     height,
+    picWidthInLumaSamples,
+    picHeightInLumaSamples,
+    cropLeft,
+    cropRight,
+    cropTop,
+    cropBottom,
     bitDepthLuma,
     bitDepthChroma,
     log2MaxPicOrderCntLsb,
@@ -164,9 +262,16 @@ export function parseSps(nal: Uint8Array): SpsInfo {
     log2MaxTransformBlockSize,
     maxTransformHierarchyDepthIntra,
     scalingListEnabled,
+    scalingListData,
     ampEnabled,
     sampleAdaptiveOffsetEnabled,
     pcmEnabled,
+    pcmSampleBitDepthLuma,
+    pcmSampleBitDepthChroma,
+    log2MinPcmLumaCodingBlockSize,
+    log2MaxPcmLumaCodingBlockSize,
+    pcmLoopFilterDisabled,
     strongIntraSmoothingEnabled,
+    color,
   }
 }

@@ -73,6 +73,52 @@ describe('getHeicMetadata', () => {
   })
 })
 
+describe('parameter sets', () => {
+  const { parsePps } = require('../src/hevc/pps') as typeof import('../src/hevc/pps')
+
+  it('parses the PPS of iPhone captures field-by-field', () => {
+    for (const buffer of [small, grid]) {
+      const meta = getHeicMetadata(buffer)
+      const pps = parsePps(meta.hvcC!.pps[0])
+      expect(pps.ppsId).toBe(0)
+      expect(pps.spsId).toBe(0)
+      // iPhone still encodes: WPP + cu_qp_delta on; tiles/sign-hiding off.
+      expect(pps.entropyCodingSyncEnabled).toBe(true)
+      expect(pps.tilesEnabled).toBe(false)
+      expect(pps.cuQpDeltaEnabled).toBe(true)
+      expect(pps.signDataHidingEnabled).toBe(false)
+      expect(pps.transformSkipEnabled).toBe(false)
+      expect(pps.transquantBypassEnabled).toBe(false)
+      expect(pps.dependentSliceSegmentsEnabled).toBe(false)
+      expect(pps.initQp).toBe(16)
+      expect(pps.cbQpOffset).toBe(2)
+      expect(pps.crQpOffset).toBe(2)
+      expect(pps.deblockingFilterDisabled).toBe(false)
+    }
+  })
+
+  it('parses the SPS tail: scaling lists, smoothing, VUI colour', () => {
+    for (const buffer of [small, grid]) {
+      const meta = getHeicMetadata(buffer)
+      const sps = meta.sps!
+      // sps_scaling_list_enabled without explicit data = DEFAULT lists.
+      expect(sps.scalingListEnabled).toBe(true)
+      expect(sps.scalingListData).not.toBeNull()
+      expect(sps.scalingListData!.lists[1][0][63]).toBe(115) // default intra 8x8 corner
+      expect(sps.scalingListData!.lists[0][0][0]).toBe(16) // 4x4 stays flat
+      expect(sps.strongIntraSmoothingEnabled).toBe(false)
+      expect(sps.pcmEnabled).toBe(false)
+      expect(sps.sampleAdaptiveOffsetEnabled).toBe(true)
+      // Apple signals full-range BT.601 matrix coefficients.
+      expect(sps.color).not.toBeNull()
+      expect(sps.color!.videoFullRange).toBe(true)
+      expect(sps.color!.matrixCoeffs).toBe(6)
+      expect(sps.picWidthInLumaSamples).toBe(sps.width)
+      expect(sps.picHeightInLumaSamples).toBe(sps.height)
+    }
+  })
+})
+
 describe('NAL layer', () => {
   it('splits every tile payload into valid slice NALs', () => {
     const meta = getHeicMetadata(grid)
