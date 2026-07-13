@@ -53,24 +53,32 @@ export function splitLengthPrefixed(payload: Uint8Array, nalLengthSize: number):
 /** Split an Annex-B stream (00 00 01 start codes) into NAL units. */
 export function splitAnnexB(stream: Uint8Array): NalUnit[] {
   const nals: NalUnit[] = []
-  const starts: number[] = []
-  for (let i = 0; i + 3 < stream.length; i++) {
-    if (stream[i] === 0 && stream[i + 1] === 0
-      && (stream[i + 2] === 1 || (stream[i + 2] === 0 && stream[i + 3] === 1))) {
-      starts.push(i + (stream[i + 2] === 1 ? 3 : 4))
-      i += 2
+
+  const findStartCode = (from: number): { prefix: number, payload: number } | null => {
+    for (let i = from; i + 2 < stream.length; i++) {
+      if (stream[i] !== 0 || stream[i + 1] !== 0)
+        continue
+      if (stream[i + 2] === 1)
+        return { prefix: i, payload: i + 3 }
+      if (stream[i + 2] === 0 && i + 3 < stream.length && stream[i + 3] === 1)
+        return { prefix: i, payload: i + 4 }
     }
+    return null
   }
-  for (let s = 0; s < starts.length; s++) {
-    let end = s + 1 < starts.length ? starts[s + 1] : stream.length
-    // trim the next start code from this NAL's tail
-    while (end > starts[s] && stream[end - 1] === 0) end--
-    if (s + 1 < starts.length)
-      end = Math.min(end, starts[s + 1] - 3)
-    const data = stream.subarray(starts[s], end)
+
+  let current = findStartCode(0)
+  while (current) {
+    const next = findStartCode(current.payload)
+    let end = next?.prefix ?? stream.length
+    while (end > current.payload && stream[end - 1] === 0)
+      end--
+
+    const data = stream.subarray(current.payload, end)
     if (data.length >= 2)
       nals.push({ type: (data[0] >> 1) & 0x3F, data })
+    current = next
   }
+
   return nals
 }
 
