@@ -59,13 +59,6 @@ export interface DecodedPicture {
 }
 
 export class PictureDecoder {
-  /** Debug trace hook (development only). */
-  static trace: ((_msg: string) => void) | null = null
-  /** Debug reconstruction hook (development only): may mutate the plane. */
-  static onReconstruct: ((_plane: Uint8Array, _stride: number, _x: number, _y: number, _size: number, _cIdx: number) => void) | null = null
-  /** Debug syntax-element hook (development only). */
-  static syntax: ((_name: string, _value: number) => void) | null = null
-
   private readonly sps: SpsInfo
   private readonly pps: PpsInfo
   private readonly bd = 8
@@ -171,10 +164,6 @@ export class PictureDecoder {
     }))
   }
 
-  private syn(name: string, value: number): void {
-    PictureDecoder.syntax?.(name, value)
-  }
-
   /** Decode all slice NALs of one coded picture. */
   decode(sliceNals: Uint8Array[]): DecodedPicture {
     for (const nal of sliceNals) {
@@ -255,7 +244,6 @@ export class PictureDecoder {
     let merged = false
     if (this.ctbX > 0) {
       const left = this.cabac.decodeBin(CTX.SAO_MERGE)
-      this.syn('sao_merge_flag', left)
       if (left === 1) {
         this.copySao(this.sao[idx - 1], params)
         merged = true
@@ -263,7 +251,6 @@ export class PictureDecoder {
     }
     if (!merged && this.ctbY > 0) {
       const up = this.cabac.decodeBin(CTX.SAO_MERGE)
-      this.syn('sao_merge_flag', up)
       if (up === 1) {
         this.copySao(this.sao[idx - this.widthInCtbs], params)
         merged = true
@@ -284,7 +271,6 @@ export class PictureDecoder {
         let type = 0
         if (this.cabac.decodeBin(CTX.SAO_TYPE_IDX) === 1)
           type = this.cabac.decodeBypass() === 1 ? 2 : 1
-        this.syn('sao_type_idx', type)
         params.typeIdx[cIdx] = type
       }
       const type = params.typeIdx[cIdx]
@@ -336,7 +322,6 @@ export class PictureDecoder {
       const condL = x0 > 0 && this.ctDepthAt(x0 - 1, y0) > ctDepth ? 1 : 0
       const condA = y0 > 0 && this.ctDepthAt(x0, y0 - 1) > ctDepth ? 1 : 0
       split = this.cabac.decodeBin(CTX.SPLIT_CU + condL + condA) === 1
-      this.syn('split_cu_flag', split ? 1 : 0)
     }
     else {
       split = log2CbSize > this.sps.log2MinLumaCodingBlockSize
@@ -383,7 +368,6 @@ export class PictureDecoder {
     let partNxN = false
     if (log2CbSize === this.sps.log2MinLumaCodingBlockSize) {
       partNxN = this.cabac.decodeBin(CTX.PART_MODE) === 0
-      this.syn('part_mode', partNxN ? 1 : 0)
     }
 
     // QP prediction for this quant group (8.6.1).
@@ -406,7 +390,6 @@ export class PictureDecoder {
     const remMode: number[] = []
     for (let i = 0; i < nPu * nPu; i++) {
       const f = this.cabac.decodeBin(CTX.PREV_INTRA_LUMA_PRED)
-      this.syn('prev_intra_luma_pred_flag', f)
       prevFlags.push(f === 1)
     }
     for (let i = 0; i < nPu * nPu; i++) {
@@ -418,14 +401,12 @@ export class PictureDecoder {
           if (this.cabac.decodeBypass() === 1)
             v = 2
         }
-        this.syn('mpm_idx', v)
         mpmIdx.push(v)
         remMode.push(0)
       }
       else {
         mpmIdx.push(-1)
         const rem = this.cabac.decodeBypassBits(5)
-        this.syn('rem_intra_luma_pred_mode', rem)
         remMode.push(rem)
       }
     }
@@ -454,12 +435,10 @@ export class PictureDecoder {
     // Chroma mode (one for 4:2:0), derived from PU0's luma mode.
     const lumaMode0 = puModes[0]
     if (this.cabac.decodeBin(CTX.INTRA_CHROMA_PRED_MODE) === 0) {
-      this.syn('intra_chroma_pred_mode', 4)
       this.cuChromaMode = lumaMode0
     }
     else {
       const idx = this.cabac.decodeBypassBits(2)
-      this.syn('intra_chroma_pred_mode', idx)
       const list = [0, 26, 10, 1]
       const chosen = list[idx]
       this.cuChromaMode = chosen === lumaMode0 ? 34 : chosen
@@ -560,12 +539,10 @@ export class PictureDecoder {
     if (log2Size > 2) {
       if (trafoDepth === 0 || parentCbfCb) {
         cbfCb = this.cabac.decodeBin(CTX.CBF_CHROMA + trafoDepth) === 1
-        this.syn('cbf_chroma', cbfCb ? 1 : 0)
       }
       else { cbfCb = false }
       if (trafoDepth === 0 || parentCbfCr) {
         cbfCr = this.cabac.decodeBin(CTX.CBF_CHROMA + trafoDepth) === 1
-        this.syn('cbf_chroma', cbfCr ? 1 : 0)
       }
       else { cbfCr = false }
     }
@@ -581,7 +558,6 @@ export class PictureDecoder {
 
     // cbf_luma: always signalled for intra CUs at the leaves.
     const cbfLuma = this.cabac.decodeBin(CTX.CBF_LUMA + (trafoDepth === 0 ? 1 : 0)) === 1
-    this.syn('cbf_luma', cbfLuma ? 1 : 0)
     this.transformUnit(x0, y0, xBase, yBase, log2Size, blkIdx, cbfLuma, cbfCb, cbfCr, puModes)
   }
 
@@ -612,7 +588,6 @@ export class PictureDecoder {
 
     // Luma TB: predict, then add residual when coded.
     const lumaMode = this.intraModeAt(x0, y0)
-    PictureDecoder.trace?.(`TU (${x0},${y0}) log2 ${log2Size} mode ${lumaMode}/${this.cuChromaMode} qp ${this.cuQp} cbf ${cbfLuma ? 1 : 0}${cbfCb ? 1 : 0}${cbfCr ? 1 : 0}`)
     let lumaLevels: Int32Array | null = null
     if (cbfLuma)
       lumaLevels = this.residualCoding(x0, y0, log2Size, 0, lumaMode)
@@ -659,12 +634,10 @@ export class PictureDecoder {
       }
       abs = 5 + value + this.cabac.decodeBypassBits(k)
     }
-    this.syn('cu_qp_delta_abs', abs)
     if (abs > 0 && this.cabac.decodeBypass() === 1)
       abs = -abs
     this.cuQpDeltaVal = abs
     this.isCuQpDeltaCoded = true
-    PictureDecoder.trace?.(`  qpDelta ${abs} at QG (${this.qgX},${this.qgY})`)
   }
 
   // -------------------------------------------------------- reconstruction
@@ -710,7 +683,6 @@ export class PictureDecoder {
       }
     }
 
-    PictureDecoder.onReconstruct?.(plane, stride, x, y, size, cIdx)
 
     for (let by = y >> 2; by < (y + size) >> 2; by++)
       decodedMap.fill(1, by * blockStride + (x >> 2), by * blockStride + ((x + size) >> 2))
@@ -754,7 +726,6 @@ export class PictureDecoder {
       lastX = lastY
       lastY = t
     }
-    PictureDecoder.trace?.(`  res c${cIdx} scan ${scanIdx} last (${lastX},${lastY})`)
 
     const numSb = size >> 2
     const sbScan = getScan(scanIdx, numSb)
@@ -792,7 +763,6 @@ export class PictureDecoder {
       if (i < lastSbIdx && i > 0) {
         const ctxInc = Math.min(1, csbfRight + csbfBelow) + (cIdx > 0 ? 2 : 0)
         const csbfBit = cabac.decodeBin(CTX.CODED_SUB_BLOCK + ctxInc)
-        this.syn('coded_sub_block_flag', csbfBit)
         if (csbfBit === 0)
           continue
         csbf[sbRaster] = 1
@@ -814,7 +784,6 @@ export class PictureDecoder {
           const yP = raster >> 2
           const ctxInc = this.sigCtxInc(log2Size, cIdx, xS * 4 + xP, yS * 4 + yP, xP, yP, scanIdx, csbfRight, csbfBelow, xS, yS)
           const sigBit = cabac.decodeBin(CTX.SIG_COEFF + ctxInc)
-          this.syn('significant_coeff_flag', sigBit)
           if (sigBit === 1) {
             sigPos.push(pos)
             inferSbDcSig = false
@@ -859,7 +828,6 @@ export class PictureDecoder {
       let g2 = 0
       if (firstG1 >= 0) {
         g2 = cabac.decodeBin(CTX.GREATER2 + ctxSet + (cIdx > 0 ? 4 : 0))
-        this.syn('coeff_abs_level_greater2', g2)
       }
 
       // Signs (sign hiding applies to the lowest scan position).
@@ -884,7 +852,6 @@ export class PictureDecoder {
         let level = base
         if (base === threshold) {
           const rem = this.decodeRemaining(cRice)
-          this.syn('coeff_abs_level_remaining', rem)
           level += rem
           if (level > 3 * (1 << cRice))
             cRice = Math.min(cRice + 1, 4)

@@ -24,6 +24,7 @@ export interface ItemInfo {
   itemId: number
   itemType: string
   itemName: string
+  itemProtectionIndex: number
 }
 
 export interface ImageSpatialExtent {

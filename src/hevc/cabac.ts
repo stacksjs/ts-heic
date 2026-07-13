@@ -160,19 +160,10 @@ export class CabacDecoder {
     this.offset = this.readBits(9)
   }
 
-  /** Bits read past the end of the substream (diagnostics; should be ~0). */
-  overrun = 0
-
   private readBit(): number {
     if (this.bitsLeft === 0) {
-      if (this.bytePos < this.data.length) {
-        this.cache = this.data[this.bytePos++]
-      }
-      else {
-        // Past the end, feed zeros (only reachable on final alignment bits).
-        this.cache = 0
-        this.overrun += 8
-      }
+      // Past the end, feed zeros (only reachable on the final alignment bits).
+      this.cache = this.bytePos < this.data.length ? this.data[this.bytePos++] : 0
       this.bitsLeft = 8
     }
     this.bitsLeft--
@@ -186,13 +177,9 @@ export class CabacDecoder {
     return v
   }
 
-  /** Debug hook logging (range, pState, ctxIdx) before each context bin. */
-  static onBin: ((_range: number, _pState: number, _ctxIdx: number) => void) | null = null
-
   /** 9.3.4.3.2 DecodeDecision. */
   decodeBin(ctxIdx: number): number {
     const pState = this.ctx.pState[ctxIdx]
-    CabacDecoder.onBin?.(this.range, pState, ctxIdx)
     const lpsRange = RANGE_TAB_LPS[(pState << 2) | ((this.range >> 6) & 3)]
     this.range -= lpsRange
 
@@ -235,15 +222,6 @@ export class CabacDecoder {
     for (let i = 0; i < count; i++)
       v = (v << 1) | this.decodeBypass()
     return v
-  }
-
-  /** Bytes consumed from the substream so far (diagnostics). */
-  get position(): number {
-    return this.bytePos
-  }
-
-  get length(): number {
-    return this.data.length
   }
 
   /** 9.3.4.3.5 DecodeTerminate (end_of_slice / end_of_subset). */
