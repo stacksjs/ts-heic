@@ -8,9 +8,11 @@ import type { SpsInfo } from './hevc/sps'
 import { applyOrientation, yuv420ToRgba } from './color'
 import { getHeicInfo, getItemPayload } from './container/heic'
 import { parseISOBMFF, validateFtyp } from './container/heif'
+import { deblockPicture } from './hevc/deblock'
 import { isSliceNal, splitLengthPrefixed } from './hevc/nal'
 import { PictureDecoder } from './hevc/picture'
 import { parsePps } from './hevc/pps'
+import { applySao } from './hevc/sao'
 import { parseSps } from './hevc/sps'
 
 export interface HeicMetadata extends HeicInfo {
@@ -98,6 +100,10 @@ function decodeItemPlanes(
   const sps = parseSps(info.hvcC!.sps[0])
   const pps = parsePps(info.hvcC!.pps[0])
   const pic = new PictureDecoder(sps, pps).decode(slices)
+  // In-loop filters run on the fully reconstructed tile: deblock first, then
+  // SAO reads the deblocked samples (8.7).
+  deblockPicture(pic, pps)
+  applySao(pic, sps)
   return { y: pic.y, cb: pic.cb, cr: pic.cr, width: pic.width, height: pic.height }
 }
 
