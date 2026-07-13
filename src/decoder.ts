@@ -7,7 +7,7 @@ import type { GridInfo, HeicInfo } from './container/heic'
 import type { SpsInfo } from './hevc/sps'
 import { applyOrientation, yuv420ToRgba } from './color'
 import { getHeicInfo, getItemPayload } from './container/heic'
-import { parseISOBMFF, validateFtyp } from './container/heif'
+import { getFtypInfo, parseISOBMFF } from './container/heif'
 import { deblockPicture } from './hevc/deblock'
 import { isSliceNal, splitLengthPrefixed } from './hevc/nal'
 import { PictureDecoder } from './hevc/picture'
@@ -24,10 +24,12 @@ export interface HeicMetadata extends HeicInfo {
 
 /** Whether a buffer looks like a HEIC/HEIF file. */
 export function isHeic(buffer: Uint8Array): boolean {
-  if (buffer.length < 12 || !validateFtyp(buffer))
+  const ftyp = getFtypInfo(buffer)
+  if (!ftyp)
     return false
-  const brand = String.fromCharCode(buffer[8], buffer[9], buffer[10], buffer[11])
-  return ['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1'].includes(brand)
+
+  const brands = [ftyp.majorBrand, ...ftyp.compatibleBrands]
+  return brands.some(brand => ['heic', 'heix', 'hevc', 'hevx'].includes(brand))
 }
 
 /**

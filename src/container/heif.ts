@@ -36,6 +36,20 @@ export interface PixelInformation {
   bitsPerChannel: number[]
 }
 
+export interface FileTypeInfo {
+  majorBrand: string
+  compatibleBrands: string[]
+}
+
+function readFourCC(buffer: Uint8Array, offset: number): string {
+  return String.fromCharCode(
+    buffer[offset],
+    buffer[offset + 1],
+    buffer[offset + 2],
+    buffer[offset + 3],
+  )
+}
+
 
 /**
  * Parse ISOBMFF (ISO Base Media File Format) boxes
@@ -46,20 +60,17 @@ export function parseISOBMFF(buffer: Uint8Array): ISOBMFFBox[] {
 
   let offset = 0
 
-  while (offset < buffer.length - 8) {
+  while (offset + 8 <= buffer.length) {
     const size = view.getUint32(offset)
-    const type = String.fromCharCode(
-      buffer[offset + 4],
-      buffer[offset + 5],
-      buffer[offset + 6],
-      buffer[offset + 7],
-    )
+    const type = readFourCC(buffer, offset + 4)
 
     let boxSize = size
     let headerSize = 8
 
     if (size === 1) {
       // 64-bit size
+      if (offset + 16 > buffer.length)
+        break
       const highSize = view.getUint32(offset + 8)
       const lowSize = view.getUint32(offset + 12)
       boxSize = highSize * 0x100000000 + lowSize
@@ -69,6 +80,11 @@ export function parseISOBMFF(buffer: Uint8Array): ISOBMFFBox[] {
       // Box extends to end of file
       boxSize = buffer.length - offset
     }
+
+    // Stop at a malformed or truncated box instead of reading outside the
+    // supplied view or getting stuck on a non-advancing size.
+    if (!Number.isSafeInteger(boxSize) || boxSize < headerSize || offset + boxSize > buffer.length)
+      break
 
     // subarray is a view into the same memory — slice would copy. For a
     // typical AVIF with a few dozen nested boxes this avoids ≈ N×fileSize
@@ -91,7 +107,9 @@ export function parseISOBMFF(buffer: Uint8Array): ISOBMFFBox[] {
       // FullBoxes in our `containerTypes` list — both need the skip.
       const isFullBoxContainer = type === 'meta' || type === 'iref'
       const childrenStart = isFullBoxContainer ? 4 : 0
-      box.children = parseISOBMFF(data.subarray(childrenStart))
+      box.children = data.length >= childrenStart
+        ? parseISOBMFF(data.subarray(childrenStart))
+        : []
     }
 
     boxes.push(box)
@@ -145,47 +163,50 @@ export function findAllBoxes(boxes: ISOBMFFBox[], type: string): ISOBMFFBox[] {
   return result
 }
 
-/**
- * Validate AVIF file type
- */
-export function validateFtyp(buffer: Uint8Array): boolean {
+/** Read the major and compatible brands from the leading `ftyp` box. */
+export function getFtypInfo(buffer: Uint8Array): FileTypeInfo | null {
+  if (buffer.length < 16)
+    return null
+
   const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-
-  // Read box header
   const size = view.getUint32(0)
-  const type = String.fromCharCode(buffer[4], buffer[5], buffer[6], buffer[7])
+  if (readFourCC(buffer, 4) !== 'ftyp')
+    return null
 
-  if (type !== 'ftyp') {
-    return false
+  let boxSize = size
+  let headerSize = 8
+  if (size === 1) {
+    if (buffer.length < 24)
+      return null
+    boxSize = view.getUint32(8) * 0x100000000 + view.getUint32(12)
+    headerSize = 16
+  }
+  else if (size === 0) {
+    boxSize = buffer.length
   }
 
-  // Read major brand
-  const majorBrand = String.fromCharCode(buffer[8], buffer[9], buffer[10], buffer[11])
-
-  // Valid AVIF brands
-  const validBrands = ['avif', 'avis', 'mif1', 'miaf']
-
-  if (validBrands.includes(majorBrand)) {
-    return true
+  const brandDataStart = headerSize
+  const compatibleStart = brandDataStart + 8
+  if (!Number.isSafeInteger(boxSize)
+    || boxSize < compatibleStart
+    || boxSize > buffer.length
+    || (boxSize - compatibleStart) % 4 !== 0) {
+    return null
   }
 
-  // Check compatible brands
-  const numBrands = (size - 16) / 4
+  const compatibleBrands: string[] = []
+  for (let offset = compatibleStart; offset < boxSize; offset += 4)
+    compatibleBrands.push(readFourCC(buffer, offset))
 
-  for (let i = 0; i < numBrands; i++) {
-    const offset = 16 + i * 4
-    const brand = String.fromCharCode(
-      buffer[offset],
-      buffer[offset + 1],
-      buffer[offset + 2],
-      buffer[offset + 3],
-    )
-    if (validBrands.includes(brand)) {
-      return true
-    }
+  return {
+    majorBrand: readFourCC(buffer, brandDataStart),
+    compatibleBrands,
   }
+}
 
-  return false
+/** Whether the buffer starts with a structurally valid `ftyp` box. */
+export function validateFtyp(buffer: Uint8Array): boolean {
+  return getFtypInfo(buffer) !== null
 }
 
 /**
@@ -467,4 +488,3 @@ export function getImageData(
 
   return result
 }
-
