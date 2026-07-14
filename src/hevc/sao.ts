@@ -65,7 +65,7 @@ function applyPlane(
             const y1 = y + cls.v[1]
             if (x0 < 0 || y0 < 0 || x0 >= width || y0 >= height
               || x1 < 0 || y1 < 0 || x1 >= width || y1 >= height)
-              continue
+            continue
             const cur = src[y * width + x]
             const edgeIdx = sign(cur - src[y0 * width + x0]) + sign(cur - src[y1 * width + x1])
             dst[y * width + x] = clip(cur + table[edgeIdx + 2])

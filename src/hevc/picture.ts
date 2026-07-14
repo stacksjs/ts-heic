@@ -12,9 +12,9 @@ import type { SliceHeader } from './slice-header'
 import type { SpsInfo } from './sps'
 import { CabacContexts, CabacDecoder, CTX } from './cabac'
 import { filterRefs, gatherRefs, predictIntra } from './intra'
-import { parseSliceHeader, SLICE_TYPE_I } from './slice-header'
 import { buildScalingFactors } from './scaling'
 import { getScan, SCAN_DIAG } from './scan'
+import { parseSliceHeader, SLICE_TYPE_I } from './slice-header'
 import { dequantize, inverseTransform } from './transform'
 
 const CTX_IDX_MAP_4X4 = [0, 1, 4, 5, 2, 3, 4, 5, 6, 6, 8, 8, 7, 7, 8, 8]
@@ -524,8 +524,8 @@ export class PictureDecoder {
     }
     else if (
       log2Size <= this.sps.log2MaxTransformBlockSize
-      && log2Size > this.sps.log2MinTransformBlockSize
-      && trafoDepth < maxTrafoDepth
+        && log2Size > this.sps.log2MinTransformBlockSize
+        && trafoDepth < maxTrafoDepth
     ) {
       split = this.cabac.decodeBin(CTX.SPLIT_TRANSFORM + (5 - log2Size)) === 1
     }
@@ -658,7 +658,7 @@ export class PictureDecoder {
   ): void {
     const planeH = cIdx === 0 ? this.h : this.ch
     const available = (px: number, py: number): boolean =>
-      px >= 0 && py >= 0 && px < stride && py < planeH
+    px >= 0 && py >= 0 && px < stride && py < planeH
       && decodedMap[(py >> 2) * blockStride + (px >> 2)] === 1
 
     const refs = gatherRefs(plane, stride, x, y, size, this.bd, available)
@@ -682,7 +682,6 @@ export class PictureDecoder {
         plane[row + dx] = v < 0 ? 0 : v > 255 ? 255 : v
       }
     }
-
 
     for (let by = y >> 2; by < (y + size) >> 2; by++)
       decodedMap.fill(1, by * blockStride + (x >> 2), by * blockStride + ((x + size) >> 2))

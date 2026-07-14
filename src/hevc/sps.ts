@@ -143,137 +143,137 @@ export function parseSps(nal: Uint8Array): SpsInfo {
   let cropTop = 0
   let cropBottom = 0
   if (r.readBit() === 1) { // conformance_window_flag
-    cropLeft = r.ue()
-    cropRight = r.ue()
-    cropTop = r.ue()
-    cropBottom = r.ue()
-  }
+  cropLeft = r.ue()
+  cropRight = r.ue()
+  cropTop = r.ue()
+  cropBottom = r.ue()
+}
 
-  const bitDepthLuma = r.ue() + 8
-  const bitDepthChroma = r.ue() + 8
-  const log2MaxPicOrderCntLsb = r.ue() + 4
+const bitDepthLuma = r.ue() + 8
+const bitDepthChroma = r.ue() + 8
+const log2MaxPicOrderCntLsb = r.ue() + 4
 
-  const subLayerOrderingPresent = r.readBit() === 1
-  const first = subLayerOrderingPresent ? 0 : maxSubLayersMinus1
-  for (let i = first; i <= maxSubLayersMinus1; i++) {
-    r.ue() // sps_max_dec_pic_buffering_minus1
-    r.ue() // sps_max_num_reorder_pics
-    r.ue() // sps_max_latency_increase_plus1
-  }
+const subLayerOrderingPresent = r.readBit() === 1
+const first = subLayerOrderingPresent ? 0 : maxSubLayersMinus1
+for (let i = first; i <= maxSubLayersMinus1; i++) {
+  r.ue() // sps_max_dec_pic_buffering_minus1
+  r.ue() // sps_max_num_reorder_pics
+  r.ue() // sps_max_latency_increase_plus1
+}
 
-  const log2MinLumaCodingBlockSize = r.ue() + 3
-  const log2CtbSize = log2MinLumaCodingBlockSize + r.ue()
-  const log2MinTransformBlockSize = r.ue() + 2
-  const log2MaxTransformBlockSize = log2MinTransformBlockSize + r.ue()
-  r.ue() // max_transform_hierarchy_depth_inter
-  const maxTransformHierarchyDepthIntra = r.ue()
+const log2MinLumaCodingBlockSize = r.ue() + 3
+const log2CtbSize = log2MinLumaCodingBlockSize + r.ue()
+const log2MinTransformBlockSize = r.ue() + 2
+const log2MaxTransformBlockSize = log2MinTransformBlockSize + r.ue()
+r.ue() // max_transform_hierarchy_depth_inter
+const maxTransformHierarchyDepthIntra = r.ue()
 
-  const scalingListEnabled = r.readBit() === 1
-  let scalingListData: ScalingListData | null = null
-  if (scalingListEnabled) {
-    scalingListData = r.readBit() === 1 // sps_scaling_list_data_present_flag
-      ? parseScalingListData(r)
-      : defaultScalingListData()
-  }
+const scalingListEnabled = r.readBit() === 1
+let scalingListData: ScalingListData | null = null
+if (scalingListEnabled) {
+  scalingListData = r.readBit() === 1 // sps_scaling_list_data_present_flag
+    ? parseScalingListData(r)
+    : defaultScalingListData()
+}
 
-  const ampEnabled = r.readBit() === 1
-  const sampleAdaptiveOffsetEnabled = r.readBit() === 1
-  const pcmEnabled = r.readBit() === 1
-  let pcmSampleBitDepthLuma = 0
-  let pcmSampleBitDepthChroma = 0
-  let log2MinPcmLumaCodingBlockSize = 0
-  let log2MaxPcmLumaCodingBlockSize = 0
-  let pcmLoopFilterDisabled = false
-  if (pcmEnabled) {
-    pcmSampleBitDepthLuma = r.readBits(4) + 1
-    pcmSampleBitDepthChroma = r.readBits(4) + 1
-    log2MinPcmLumaCodingBlockSize = r.ue() + 3
-    log2MaxPcmLumaCodingBlockSize = log2MinPcmLumaCodingBlockSize + r.ue()
-    pcmLoopFilterDisabled = r.readBit() === 1
-  }
+const ampEnabled = r.readBit() === 1
+const sampleAdaptiveOffsetEnabled = r.readBit() === 1
+const pcmEnabled = r.readBit() === 1
+let pcmSampleBitDepthLuma = 0
+let pcmSampleBitDepthChroma = 0
+let log2MinPcmLumaCodingBlockSize = 0
+let log2MaxPcmLumaCodingBlockSize = 0
+let pcmLoopFilterDisabled = false
+if (pcmEnabled) {
+  pcmSampleBitDepthLuma = r.readBits(4) + 1
+  pcmSampleBitDepthChroma = r.readBits(4) + 1
+  log2MinPcmLumaCodingBlockSize = r.ue() + 3
+  log2MaxPcmLumaCodingBlockSize = log2MinPcmLumaCodingBlockSize + r.ue()
+  pcmLoopFilterDisabled = r.readBit() === 1
+}
 
-  const numShortTermRefPicSets = r.ue()
-  const numDeltaPocs: number[] = []
-  for (let i = 0; i < numShortTermRefPicSets; i++)
-    skipShortTermRefPicSet(r, i, numShortTermRefPicSets, numDeltaPocs)
+const numShortTermRefPicSets = r.ue()
+const numDeltaPocs: number[] = []
+for (let i = 0; i < numShortTermRefPicSets; i++)
+  skipShortTermRefPicSet(r, i, numShortTermRefPicSets, numDeltaPocs)
 
-  if (r.readBit() === 1) { // long_term_ref_pics_present_flag
-    const numLongTerm = r.ue()
-    for (let i = 0; i < numLongTerm; i++) {
-      r.readBits(log2MaxPicOrderCntLsb) // lt_ref_pic_poc_lsb_sps
-      r.readBit() // used_by_curr_pic_lt_sps_flag
-    }
-  }
+if (r.readBit() === 1) { // long_term_ref_pics_present_flag
+const numLongTerm = r.ue()
+for (let i = 0; i < numLongTerm; i++) {
+  r.readBits(log2MaxPicOrderCntLsb) // lt_ref_pic_poc_lsb_sps
+  r.readBit() // used_by_curr_pic_lt_sps_flag
+}
+}
 
-  r.readBit() // sps_temporal_mvp_enabled_flag
-  const strongIntraSmoothingEnabled = r.readBit() === 1
+r.readBit() // sps_temporal_mvp_enabled_flag
+const strongIntraSmoothingEnabled = r.readBit() === 1
 
-  let color: VuiColorInfo | null = null
-  if (r.readBit() === 1) { // vui_parameters_present_flag
-    if (r.readBit() === 1) { // aspect_ratio_info_present_flag
-      const aspectRatioIdc = r.readBits(8)
-      if (aspectRatioIdc === 255) {
-        r.readBits(16) // sar_width
-        r.readBits(16) // sar_height
-      }
-    }
-    if (r.readBit() === 1) // overscan_info_present_flag
-      r.readBit() // overscan_appropriate_flag
-    if (r.readBit() === 1) { // video_signal_type_present_flag
-      r.readBits(3) // video_format
-      const videoFullRange = r.readBit() === 1
-      let colourPrimaries = 2
-      let transferCharacteristics = 2
-      let matrixCoeffs = 2
-      if (r.readBit() === 1) { // colour_description_present_flag
-        colourPrimaries = r.readBits(8)
-        transferCharacteristics = r.readBits(8)
-        matrixCoeffs = r.readBits(8)
-      }
-      color = { videoFullRange, colourPrimaries, transferCharacteristics, matrixCoeffs }
-    }
-    // Remaining VUI fields (chroma loc, timing, bitstream restrictions) are
-    // irrelevant to still-image decoding and left unread.
-  }
+let color: VuiColorInfo | null = null
+if (r.readBit() === 1) { // vui_parameters_present_flag
+if (r.readBit() === 1) { // aspect_ratio_info_present_flag
+const aspectRatioIdc = r.readBits(8)
+if (aspectRatioIdc === 255) {
+  r.readBits(16) // sar_width
+  r.readBits(16) // sar_height
+}
+}
+if (r.readBit() === 1) // overscan_info_present_flag
+  r.readBit() // overscan_appropriate_flag
+if (r.readBit() === 1) { // video_signal_type_present_flag
+r.readBits(3) // video_format
+const videoFullRange = r.readBit() === 1
+let colourPrimaries = 2
+let transferCharacteristics = 2
+let matrixCoeffs = 2
+if (r.readBit() === 1) { // colour_description_present_flag
+colourPrimaries = r.readBits(8)
+transferCharacteristics = r.readBits(8)
+matrixCoeffs = r.readBits(8)
+}
+color = { videoFullRange, colourPrimaries, transferCharacteristics, matrixCoeffs }
+}
+// Remaining VUI fields (chroma loc, timing, bitstream restrictions) are
+// irrelevant to still-image decoding and left unread.
+}
 
-  // SubWidthC/SubHeightC per chroma_format_idc (4:2:0 = 2/2, 4:2:2 = 2/1).
-  const subW = chromaFormatIdc === 1 || chromaFormatIdc === 2 ? 2 : 1
-  const subH = chromaFormatIdc === 1 ? 2 : 1
+// SubWidthC/SubHeightC per chroma_format_idc (4:2:0 = 2/2, 4:2:2 = 2/1).
+const subW = chromaFormatIdc === 1 || chromaFormatIdc === 2 ? 2 : 1
+const subH = chromaFormatIdc === 1 ? 2 : 1
 
-  const width = picWidthInLumaSamples - subW * (cropLeft + cropRight)
-  const height = picHeightInLumaSamples - subH * (cropTop + cropBottom)
+const width = picWidthInLumaSamples - subW * (cropLeft + cropRight)
+const height = picHeightInLumaSamples - subH * (cropTop + cropBottom)
 
-  return {
-    spsId,
-    chromaFormatIdc,
-    width,
-    height,
-    picWidthInLumaSamples,
-    picHeightInLumaSamples,
-    cropLeft,
-    cropRight,
-    cropTop,
-    cropBottom,
-    bitDepthLuma,
-    bitDepthChroma,
-    log2MaxPicOrderCntLsb,
-    log2MinLumaCodingBlockSize,
-    log2CtbSize,
-    log2MinTransformBlockSize,
-    log2MaxTransformBlockSize,
-    maxTransformHierarchyDepthIntra,
-    scalingListEnabled,
-    scalingListData,
-    ampEnabled,
-    sampleAdaptiveOffsetEnabled,
-    pcmEnabled,
-    pcmSampleBitDepthLuma,
-    pcmSampleBitDepthChroma,
-    log2MinPcmLumaCodingBlockSize,
-    log2MaxPcmLumaCodingBlockSize,
-    pcmLoopFilterDisabled,
-    strongIntraSmoothingEnabled,
-    numShortTermRefPicSets,
-    color,
-  }
+return {
+  spsId,
+  chromaFormatIdc,
+  width,
+  height,
+  picWidthInLumaSamples,
+  picHeightInLumaSamples,
+  cropLeft,
+  cropRight,
+  cropTop,
+  cropBottom,
+  bitDepthLuma,
+  bitDepthChroma,
+  log2MaxPicOrderCntLsb,
+  log2MinLumaCodingBlockSize,
+  log2CtbSize,
+  log2MinTransformBlockSize,
+  log2MaxTransformBlockSize,
+  maxTransformHierarchyDepthIntra,
+  scalingListEnabled,
+  scalingListData,
+  ampEnabled,
+  sampleAdaptiveOffsetEnabled,
+  pcmEnabled,
+  pcmSampleBitDepthLuma,
+  pcmSampleBitDepthChroma,
+  log2MinPcmLumaCodingBlockSize,
+  log2MaxPcmLumaCodingBlockSize,
+  pcmLoopFilterDisabled,
+  strongIntraSmoothingEnabled,
+  numShortTermRefPicSets,
+  color,
+}
 }

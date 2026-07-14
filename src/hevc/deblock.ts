@@ -7,8 +7,8 @@
  * are filtered across the whole plane first, then horizontal edges read the
  * vertically-filtered samples, exactly as the spec orders them.
  */
-import type { PpsInfo } from './pps'
 import type { DecodedPicture } from './picture'
+import type { PpsInfo } from './pps'
 
 /** Table 8-23 beta' by Q. */
 const BETA_TABLE = new Int32Array([
@@ -80,9 +80,9 @@ export function deblockPicture(pic: DecodedPicture, pps: PpsInfo, bitDepth = 8):
 
         // Sample accessors: p is the decreasing side, q the increasing side.
         const p = (k: number, i: number): number =>
-          vertical ? y[(ey + k) * width + (ex - 1 - i)] : y[(ey - 1 - i) * width + (ex + k)]
+        vertical ? y[(ey + k) * width + (ex - 1 - i)] : y[(ey - 1 - i) * width + (ex + k)]
         const q = (k: number, i: number): number =>
-          vertical ? y[(ey + k) * width + (ex + i)] : y[(ey + i) * width + (ex + k)]
+        vertical ? y[(ey + k) * width + (ex + i)] : y[(ey + i) * width + (ex + k)]
 
         const dp0 = Math.abs(p(0, 2) - 2 * p(0, 1) + p(0, 0))
         const dp3 = Math.abs(p(3, 2) - 2 * p(3, 1) + p(3, 0))

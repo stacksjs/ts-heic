@@ -50,7 +50,6 @@ function readFourCC(buffer: Uint8Array, offset: number): string {
   )
 }
 
-
 /**
  * Parse ISOBMFF (ISO Base Media File Format) boxes
  */
@@ -434,8 +433,6 @@ export function parsePixi(data: Uint8Array): PixelInformation {
 
   return { bitsPerChannel }
 }
-
-
 
 /**
  * Get image item data
