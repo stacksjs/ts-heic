@@ -58,8 +58,8 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "better-dx": "^0.2.15",
-    "ts-jpeg": "^0.3.1"
+    "better-dx": "^0.2.22",
+    "ts-jpeg": "^0.3.4"
   },
   "git-hooks": {
     "pre-commit": {
