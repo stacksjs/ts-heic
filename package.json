@@ -54,7 +54,7 @@
     "release:patch": "bunx --bun @stacksjs/bumpx patch --yes --recursive",
     "release:minor": "bunx --bun @stacksjs/bumpx minor --yes --recursive",
     "release:major": "bunx --bun @stacksjs/bumpx major --yes --recursive",
-    "postinstall": "bunx bun-git-hooks"
+    "hooks:install": "bun-git-hooks"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -68,6 +68,6 @@
       },
       "autoRestage": true
     },
-    "commit-msg": "bunx gitlint --edit .git/COMMIT_EDITMSG"
+    "commit-msg": "bun x gitlint --edit \"$1\""
   }
 }
